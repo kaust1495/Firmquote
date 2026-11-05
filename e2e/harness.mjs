@@ -4,8 +4,29 @@ import { readFileSync, existsSync } from 'node:fs';
 import { createClient } from '@libsql/client';
 
 export const BASE = process.env.E2E_BASE || 'http://localhost:3200';
+const testUrl = new URL(BASE);
+if (testUrl.protocol !== 'http:' || !['localhost','127.0.0.1','[::1]'].includes(testUrl.hostname)) {
+  throw new Error('E2E suites are local-only. Refusing a deployed target.');
+}
+if (!(process.env.E2E_DB || 'file:./e2e-prod.db').startsWith('file:')) {
+  throw new Error('E2E suites require a throwaway local file database.');
+}
 export const EMAILS = process.env.E2E_EMAILS;
 export const db = createClient({ url: process.env.E2E_DB || 'file:./e2e-prod.db' });
+
+// Local SQLite tests use a separate process/connection from Next. Retry only BUSY
+// reads from this harness; otherwise an early rejected Promise.all leaves setup
+// work running into the next test and gives misleading downstream failures.
+const execute = db.execute.bind(db);
+db.execute = async (...args) => {
+  for (let attempt=0;;attempt++) {
+    try { return await execute(...args); }
+    catch(error) {
+      if (error.code !== 'SQLITE_BUSY' || attempt >= 50) throw error;
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+  }
+};
 
 const decode = s => s.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#x27;|&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>');
 const attr = (tag, name) => { const m = new RegExp(`\\s${name}="([^"]*)"`).exec(tag); return m ? decode(m[1]) : null; };
@@ -93,7 +114,7 @@ export const results = [];
 export async function test(name, fn) {
   const t0 = Date.now();
   try { await fn(); results.push({ name, ok: true, ms: Date.now() - t0 }); console.log(`  PASS  ${name}`); }
-  catch (e) { results.push({ name, ok: false, ms: Date.now() - t0, error: String(e.message || e) }); console.log(`  FAIL  ${name}\n        ${String(e.message || e).split('\n')[0]}`); }
+  catch (e) { results.push({ name, ok: false, ms: Date.now() - t0, error: String(e.message || e) }); console.log(`  FAIL  ${name}\n        ${String(e.stack || e)}`); }
 }
 export function expect(cond, msg) { if (!cond) throw new Error(msg); }
 export function eq(a, b, msg) { if (a !== b) throw new Error(`${msg}: expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`); }

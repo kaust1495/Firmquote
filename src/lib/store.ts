@@ -11,6 +11,10 @@ let lastPurgeAt = 0;
 function init() {
   return ready ||= (async () => {
     if (process.env.VERCEL && !process.env.TURSO_DATABASE_URL) throw new Error('Set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN before deploying on Vercel. Its local filesystem is not durable.');
+    if (url.startsWith('file:')) {
+      await db.execute('PRAGMA journal_mode = WAL');
+      await db.execute('PRAGMA busy_timeout = 5000');
+    }
     await db.execute(`CREATE TABLE IF NOT EXISTS quotes (id TEXT PRIMARY KEY, edit_key TEXT NOT NULL, client TEXT NOT NULL, project TEXT NOT NULL, ask TEXT NOT NULL, deliverables TEXT NOT NULL, exclusions TEXT NOT NULL, price REAL NOT NULL, currency TEXT NOT NULL DEFAULT 'INR', revision_limit INTEGER NOT NULL, revision INTEGER NOT NULL DEFAULT 1, status TEXT NOT NULL DEFAULT 'draft', created_at TEXT NOT NULL, updated_at TEXT NOT NULL, accepted_at TEXT, accepted_revision INTEGER)`);
     const columns = await db.execute('PRAGMA table_info(quotes)');
     for (const [name, definition] of [['currency', "TEXT NOT NULL DEFAULT 'INR'"], ['client_email', 'TEXT'], ['pages_count', 'INTEGER'], ['forms_count', 'INTEGER'], ['cms_needed', 'TEXT'], ['timeline', 'TEXT'], ['supplier_name', 'TEXT'], ['supplier_address', 'TEXT'], ['supplier_gstin', 'TEXT'], ['client_gstin', 'TEXT'], ['sac_code', 'TEXT'], ['gst_rate', 'REAL'], ['gst_treatment', 'TEXT'], ['gst_split', 'TEXT'], ['upi_id', 'TEXT'], ['advance_amount', 'REAL'], ['advance_paid_at', 'TEXT'], ['region', 'TEXT'], ['payment_link', 'TEXT'], ['valid_until', 'TEXT'], ['first_viewed_at', 'TEXT'], ['last_viewed_at', 'TEXT'], ['view_count', 'INTEGER NOT NULL DEFAULT 0'], ['account_id', 'TEXT'], ['archived_at', 'TEXT'], ['first_view_ip', 'TEXT']]) {
